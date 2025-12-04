@@ -115,7 +115,7 @@ void DHT11_Start(void)
 
 uint8_t DHT11_WaitForPin(GPIO_PinState state, uint32_t timeout_us)
 {
-    __HAL_TIM_SET_COUNTER(&htim2, 0);  // รีเซ็ต timer �?่อนเสมอ
+    __HAL_TIM_SET_COUNTER(&htim2, 0);  // รีเซ็ต timer �?่อนเสมอ
     while (HAL_GPIO_ReadPin(GPIOB, GPIO_PIN_0) != state)
     {
         if (__HAL_TIM_GET_COUNTER(&htim2) > timeout_us)
@@ -126,20 +126,16 @@ uint8_t DHT11_WaitForPin(GPIO_PinState state, uint32_t timeout_us)
 
 uint8_t DHT11_ReadBit(void)
 {
-    // รอให้ LOW �?่อน
     if (!DHT11_WaitForPin(GPIO_PIN_RESET, 100))
         return 0;
 
-    // รอให้ HIGH
     if (!DHT11_WaitForPin(GPIO_PIN_SET, 100))
         return 0;
 
-    // รอ 40us �?ล้วเช็ค
     delay_us(40);
 
     uint8_t bit = (HAL_GPIO_ReadPin(GPIOB, GPIO_PIN_0) == GPIO_PIN_SET) ? 1 : 0;
 
-    // รอให้�?ลับเป็น LOW
     DHT11_WaitForPin(GPIO_PIN_RESET, 100);
 
     return bit;
@@ -162,25 +158,20 @@ uint8_t DHT11_ReadData(uint8_t *temp, uint8_t *humi)
 
     DHT11_Start();
 
-    // รอ response จา�? DHT11 (LOW 80us)
     if (!DHT11_WaitForPin(GPIO_PIN_RESET, 100))
         return 0;
 
-    // รอ DHT11 ส่ง HIGH 80us
     if (!DHT11_WaitForPin(GPIO_PIN_SET, 100))
         return 0;
 
-    // รอให้�?ลับเป็น LOW �?่อนอ่านข้อมูล
     if (!DHT11_WaitForPin(GPIO_PIN_RESET, 100))
         return 0;
 
-    // อ่าน 5 bytes
     for (int i = 0; i < 5; i++)
     {
         data[i] = DHT11_ReadByte();
     }
 
-    // ตรวจสอบ checksum
     if (data[4] == ((data[0] + data[1] + data[2] + data[3]) & 0xFF))
     {
         *humi = data[0];
@@ -191,6 +182,26 @@ uint8_t DHT11_ReadData(uint8_t *temp, uint8_t *humi)
     return 0;
 }
 
+#define TEMP_LIMIT   24.0f
+#define HUM_LIMIT    80.0f
+#define LIGHT_LIMIT  2000
+
+int isAirBad(float t, float h, int light) {
+    if (t >= TEMP_LIMIT) return 1;
+    if (h >= HUM_LIMIT) return 1;
+    if (light <= LIGHT_LIMIT) return 1;
+    return 0;
+}
+
+void SetGreen() {
+	HAL_GPIO_WritePin(GPIOA, GPIO_PIN_0, GPIO_PIN_RESET);
+	HAL_GPIO_WritePin(GPIOA, GPIO_PIN_1, GPIO_PIN_SET);
+}
+
+void SetRed() {
+	HAL_GPIO_WritePin(GPIOA, GPIO_PIN_0, GPIO_PIN_SET);
+	HAL_GPIO_WritePin(GPIOA, GPIO_PIN_1, GPIO_PIN_RESET);
+}
 
 /* USER CODE END 0 */
 
@@ -233,7 +244,7 @@ int main(void)
 
   uint8_t temp, humi;
   printf("DHT11 Ready...\r\n");
-
+  HAL_Delay(1500);
   /* USER CODE END 2 */
 
   /* Infinite loop */
@@ -263,12 +274,12 @@ int main(void)
 //      HAL_GPIO_WritePin(GPIOA, GPIO_PIN_1, GPIO_PIN_RESET);
 //      delay_ms(500);
 
-//	  HAL_ADC_Start(&hadc1);
-//	  if (HAL_ADC_PollForConversion(&hadc1, 1000) == HAL_OK) {
-//		  adcval = HAL_ADC_GetValue(&hadc1);
-//		  sprintf(buf,  "%d\r\n" , adcval);
-//		  HAL_UART_Transmit(&huart2, buf, strlen(buf), 1000);
-//	  }
+	  HAL_ADC_Start(&hadc1);
+	  if (HAL_ADC_PollForConversion(&hadc1, 1000) == HAL_OK) {
+		  adcval = HAL_ADC_GetValue(&hadc1);
+		  sprintf(buf,  "Ligth %d\r\n" , adcval);
+		  HAL_UART_Transmit(&huart2, buf, strlen(buf), 1000);
+	  }
 
 	  printf("TIMER count = %lu\r\n", __HAL_TIM_GET_COUNTER(&htim2));
 	  HAL_Delay(500);
@@ -282,8 +293,14 @@ int main(void)
 	          printf("DHT11 Read Failed!\r\n");
 	      }
 
-	      HAL_Delay(2000);
+	      HAL_Delay(1000);
+	        if (isAirBad(temp, humi, adcval)) {
+	                SetRed();
+	            } else {
+	                SetGreen();
+	            }
   }
+
   /* USER CODE END 3 */
 }
 
@@ -493,11 +510,11 @@ static void MX_GPIO_Init(void)
   HAL_GPIO_Init(GPIOA, &GPIO_InitStruct);
 
   /*Configure GPIO pin : PB0 */
-  GPIO_InitStruct.Pin = GPIO_PIN_0;
-  GPIO_InitStruct.Mode = GPIO_MODE_OUTPUT_PP;
-  GPIO_InitStruct.Pull = GPIO_NOPULL;
-  GPIO_InitStruct.Speed = GPIO_SPEED_FREQ_LOW;
-  HAL_GPIO_Init(GPIOB, &GPIO_InitStruct);
+//  GPIO_InitStruct.Pin = GPIO_PIN_0;
+//  GPIO_InitStruct.Mode = GPIO_MODE_OUTPUT_PP;
+//  GPIO_InitStruct.Pull = GPIO_NOPULL;
+//  GPIO_InitStruct.Speed = GPIO_SPEED_FREQ_LOW;
+//  HAL_GPIO_Init(GPIOB, &GPIO_InitStruct);
 
 }
 
