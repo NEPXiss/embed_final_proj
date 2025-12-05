@@ -210,9 +210,14 @@ void SendToNodeMCU(const char* msg) {
 #define HUM_LIMIT    80.0f
 #define LIGHT_LIMIT  2000
 
-int isAirBad(float t, float h, int light) {
+int isBadAir(float t, float h, int light) {
     if (t >= TEMP_LIMIT) return 1;
     if (h >= HUM_LIMIT) return 1;
+    if (light <= LIGHT_LIMIT) return 1;
+    return 0;
+}
+
+int isTooDark(int light) {
     if (light <= LIGHT_LIMIT) return 1;
     return 0;
 }
@@ -317,7 +322,10 @@ int main(void)
 
 		HAL_Delay(1000);
 
-		if (isAirBad(temp, humi, adcval)) {
+		int badAir = isBadAir(temp, humi, adcval);
+		int tooDark = isTooDark(adcval);
+
+		if (badAir) {
 			SetRed();
 		} else {
 			SetGreen();
@@ -325,7 +333,7 @@ int main(void)
 
 
 		// TODO Send Temp, Humid, Light to NodeMCU
-		sprintf(buf, "T:%d,H:%d,L:%d\r\n", temp, humi, adcval);
+		sprintf(buf, "T:%d,H:%d,L:%d,D:%d,B:%d\r\n",temp, humi, adcval, tooDark, badAir);
 		HAL_UART_Transmit(&huart1, (uint8_t*)buf, strlen(buf), 100);
 	}
   /* USER CODE END 3 */
