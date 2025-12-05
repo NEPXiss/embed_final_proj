@@ -103,10 +103,12 @@ void DHT11_SetPinInput(void)
 
 void DHT11_Start(void)
 {
+	printf("DHT11_Start(): set as OUTPUT, drive LOW (start signal)\r\n");
     DHT11_SetPinOutput();
     HAL_GPIO_WritePin(GPIOB, GPIO_PIN_0, GPIO_PIN_RESET);
     HAL_Delay(20);
 
+    printf("DHT11_Start(): release line (HIGH) and switch to INPUT\r\n");
     HAL_GPIO_WritePin(GPIOB, GPIO_PIN_0, GPIO_PIN_SET);
     delay_us(30);
 
@@ -182,7 +184,23 @@ uint8_t DHT11_ReadData(uint8_t *temp, uint8_t *humi)
     return 0;
 }
 
-#define TEMP_LIMIT   24.0f
+#define DHT11_MAX_TRIES 5
+#define DHT11_RETRY_DELAY_MS 200
+
+uint8_t DHT11_ReadDataWithRetry(uint8_t *temp, uint8_t *humi)
+{
+    for (int t = 0; t < DHT11_MAX_TRIES; t++) {
+        if (DHT11_ReadData(temp, humi)) {
+            if (t > 0) printf("DHT11: succeeded on try %d\r\n", t+1);
+            return 1;
+        }
+        printf("DHT11: try %d failed, retrying after %d ms\r\n", t+1, DHT11_RETRY_DELAY_MS);
+        HAL_Delay(DHT11_RETRY_DELAY_MS);
+    }
+    return 0;
+}
+
+#define TEMP_LIMIT   31.0f
 #define HUM_LIMIT    80.0f
 #define LIGHT_LIMIT  2000
 
@@ -211,97 +229,95 @@ void SetRed() {
   */
 int main(void)
 {
-  /* USER CODE BEGIN 1 */
+	/* USER CODE BEGIN 1 */
 
-  /* USER CODE END 1 */
-  
+	/* USER CODE END 1 */
 
-  /* MCU Configuration--------------------------------------------------------*/
 
-  /* Reset of all peripherals, Initializes the Flash interface and the Systick. */
-  HAL_Init();
+	/* MCU Configuration--------------------------------------------------------*/
 
-  /* USER CODE BEGIN Init */
+	/* Reset of all peripherals, Initializes the Flash interface and the Systick. */
+	HAL_Init();
 
-  /* USER CODE END Init */
+	/* USER CODE BEGIN Init */
 
-  /* Configure the system clock */
-  SystemClock_Config();
+	/* USER CODE END Init */
 
-  /* USER CODE BEGIN SysInit */
+	/* Configure the system clock */
+	SystemClock_Config();
 
-  /* USER CODE END SysInit */
+	/* USER CODE BEGIN SysInit */
 
-  /* Initialize all configured peripherals */
-  MX_GPIO_Init();
-  MX_USART2_UART_Init();
-  MX_ADC1_Init();
-  MX_TIM2_Init();
-  /* USER CODE BEGIN 2 */
-  HAL_TIM_Base_Start(&htim2);
-  int adcval = 0;
-  char buf[256];
+	/* USER CODE END SysInit */
 
-  uint8_t temp, humi;
-  printf("DHT11 Ready...\r\n");
-  HAL_Delay(1500);
-  /* USER CODE END 2 */
+	/* Initialize all configured peripherals */
+	MX_GPIO_Init();
+	MX_USART2_UART_Init();
+	MX_ADC1_Init();
+	MX_TIM2_Init();
 
-  /* Infinite loop */
-  /* USER CODE BEGIN WHILE */
-  while (1)
-  {
-    /* USER CODE END WHILE */
+	/* USER CODE BEGIN 2 */
+	HAL_TIM_Base_Start(&htim2);
 
-    /* USER CODE BEGIN 3 */
-//      // Red ON
-//      HAL_GPIO_WritePin(GPIOA, GPIO_PIN_0, GPIO_PIN_SET);
-//      HAL_GPIO_WritePin(GPIOA, GPIO_PIN_1, GPIO_PIN_RESET);
-//      delay_ms(500);
-//
-//      // Green ON
-//      HAL_GPIO_WritePin(GPIOA, GPIO_PIN_0, GPIO_PIN_RESET);
-//      HAL_GPIO_WritePin(GPIOA, GPIO_PIN_1, GPIO_PIN_SET);
-//      delay_ms(500);
-//
-//      // Yellow (Red + Green)
-//      HAL_GPIO_WritePin(GPIOA, GPIO_PIN_0, GPIO_PIN_SET);
-//      HAL_GPIO_WritePin(GPIOA, GPIO_PIN_1, GPIO_PIN_SET);
-//      delay_ms(500);
-//
-//      // All OFF
-//      HAL_GPIO_WritePin(GPIOA, GPIO_PIN_0, GPIO_PIN_RESET);
-//      HAL_GPIO_WritePin(GPIOA, GPIO_PIN_1, GPIO_PIN_RESET);
-//      delay_ms(500);
 
-	  HAL_ADC_Start(&hadc1);
-	  if (HAL_ADC_PollForConversion(&hadc1, 1000) == HAL_OK) {
-		  adcval = HAL_ADC_GetValue(&hadc1);
-		  sprintf(buf,  "Ligth %d\r\n" , adcval);
-		  HAL_UART_Transmit(&huart2, buf, strlen(buf), 1000);
-	  }
+	/* --- Debug: print clocks and timer prescaler --- */
+	printf("\r\n==== SYSTEM INFO ====\r\n");
+	printf("SYSCLK = %lu\r\n", HAL_RCC_GetSysClockFreq());
+	printf("HCLK   = %lu\r\n", HAL_RCC_GetHCLKFreq());
+	printf("PCLK1  = %lu\r\n", HAL_RCC_GetPCLK1Freq());
+	printf("PCLK2  = %lu\r\n", HAL_RCC_GetPCLK2Freq());
+	printf("TIM2 PSC = %lu\r\n", htim2.Init.Prescaler);
 
-	  printf("TIMER count = %lu\r\n", __HAL_TIM_GET_COUNTER(&htim2));
-	  HAL_Delay(500);
+	/* measure actual delay_us */
+	__HAL_TIM_SET_COUNTER(&htim2, 0);
+	uint32_t t1 = __HAL_TIM_GET_COUNTER(&htim2);
+	delay_us(100);
+	uint32_t t2 = __HAL_TIM_GET_COUNTER(&htim2);
+	printf("delay_us(100) actual = %lu us\r\n", (t2 - t1));
 
-	  if (DHT11_ReadData(&temp, &humi))
-	      {
-	          printf("Temp: %d C, Humidity: %d %%\r\n", temp, humi);
-	      }
-	      else
-	      {
-	          printf("DHT11 Read Failed!\r\n");
-	      }
+	int adcval = 0;
+	char buf[256];
 
-	      HAL_Delay(1000);
-	        if (isAirBad(temp, humi, adcval)) {
-	                SetRed();
-	            } else {
-	                SetGreen();
-	            }
-  }
+	uint8_t temp, humi;
+	printf("DHT11 Ready...\r\n");
+	HAL_Delay(1500);
+	/* USER CODE END 2 */
 
-  /* USER CODE END 3 */
+	/* Infinite loop */
+	/* USER CODE BEGIN WHILE */
+	while (1)
+	{
+		/* USER CODE END WHILE */
+
+		/* USER CODE BEGIN 3 */
+		HAL_ADC_Start(&hadc1);
+		if (HAL_ADC_PollForConversion(&hadc1, 1000) == HAL_OK) {
+			adcval = HAL_ADC_GetValue(&hadc1);
+			sprintf(buf,  "Ligth %d\r\n" , adcval);
+			HAL_UART_Transmit(&huart2, buf, strlen(buf), 1000);
+		}
+
+		printf("TIMER count = %lu\r\n", __HAL_TIM_GET_COUNTER(&htim2));
+		HAL_Delay(500);
+
+		if (DHT11_ReadData(&temp, &humi))
+		{
+		  printf("Temp: %d C, Humidity: %d %%\r\n", temp, humi);
+		}
+		else
+		{
+		  printf("DHT11 Read Failed!\r\n");
+		}
+
+		HAL_Delay(1000);
+
+		if (isAirBad(temp, humi, adcval)) {
+			SetRed();
+		} else {
+			SetGreen();
+		}
+	}
+	/* USER CODE END 3 */
 }
 
 /**
