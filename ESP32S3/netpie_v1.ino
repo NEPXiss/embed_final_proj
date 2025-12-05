@@ -1,38 +1,114 @@
-// === UART bridge: ESP32-S3 <-> STM32 ===
+#include <WiFi.h>
+#include <PubSubClient.h>
+#include <ArduinoJson.h>
 
-// Choose pins for UART1 (change if you want)
-#define STM32_RX_PIN 18   // ESP32-S3 receives from STM32 TX
-#define STM32_TX_PIN 17   // ESP32-S3 transmits to STM32 RX
+const char* ssid = " Your_SSID ";
+const char* password = " Your_Password ";
+const char* mqtt_server = "broker.netpie.io";
+const int mqtt_port = 1883;
+const char* mqtt_Client = " Client_ID ";
+const char* mqtt_username = " Token ";
+const char* mqtt_password = " Secret ";
 
-#define UART_BAUD    115200 // UART speed for STM32 link
-#define USB_BAUD     115200 // Serial Monitor speed
+WiFiClient espClient;
+PubSubClient client(espClient);
+
+int temp = 0, humi = 0, light = 0;
+
+unsigned long lastSendTime = 0;
+const unsigned long sendInterval = 3000;
+
+void setup_wifi() {
+  Serial.println();
+  Serial.print("Connecting to WiFi: ");
+  Serial.println(ssid);
+
+  WiFi.begin(ssid, password);
+
+  int attempts = 0;
+  while (WiFi.status() != WL_CONNECTED && attempts < 20) {
+    delay(500);
+    Serial.print(".");
+    attempts++;
+  }
+
+  if (WiFi.status() == WL_CONNECTED) {
+    Serial.println("");
+    Serial.println("WiFi connected");
+    Serial.print("IP address: ");
+    Serial.println(WiFi.localIP());
+  } else {
+    Serial.println("");
+    Serial.println("WiFi connection failed!");
+  }
+}
+
+void reconnect() {
+  while (!client.connected()) {
+    Serial.print("Connecting to MQTT...");
+    if (client.connect(mqtt_Client, mqtt_username, mqtt_password)) {
+      Serial.println("MQTT connected");
+    } else {
+      Serial.print("failed, rc=");
+      Serial.print(client.state());
+      Serial.println(" try again in 2 seconds");
+      delay(2000);
+    }
+  }
+}
+
+void sendDataToNetpie() {
+  if (!client.connected()) {
+    reconnect();
+  }
+  client.loop();
+
+  StaticJsonDocument<200> doc;
+  doc["data"]["temperature"] = temp;
+  doc["data"]["humidity"] = humi;
+  doc["data"]["light"] = light;
+
+  char buffer[200];
+  serializeJson(doc, buffer);
+
+  Serial.print("Publishing JSON: ");
+  Serial.println(buffer);
+
+  if (client.publish("@shadow/data/update", buffer)) {
+    Serial.println("Publish OK");
+  } else {
+    Serial.println("Publish FAILED");
+  }
+}
 
 void setup() {
-  // USB serial for debugging / Serial Monitor
-  Serial.begin(USB_BAUD);
-  delay(2000); // give time for USB to come up
-
-  Serial.println();
-  Serial.println("=== ESP32-S3 UART Bridge Started ===");
-  Serial.println("USB Serial <-> UART1 (STM32)");
-  Serial.println("Type in Serial Monitor to send to STM32.");
-  Serial.println();
-
-  // Hardware UART1 for STM32
-  // Serial1.begin(baud, config, RX_pin, TX_pin)
-  Serial1.begin(UART_BAUD, SERIAL_8N1, STM32_RX_PIN, STM32_TX_PIN);
+  Serial.begin(115200);
+  Serial1.begin(115200, SERIAL_8N1, 18, 17);
+  setup_wifi();
+  client.setServer(mqtt_server, mqtt_port);
 }
 
 void loop() {
-  // 1) From PC -> ESP32 -> STM32
-  if (Serial.available()) {
-    int c = Serial.read();
-    Serial1.write(c);  // forward to STM32
+  if (!client.connected()) {
+    reconnect();
+  }
+  client.loop();
+
+  if (Serial1.available()) {
+    String line = Serial1.readStringUntil('\n');
+    Serial.println(line);
+
+    int t, h, l;
+    if (sscanf(line.c_str(), "T:%d,H:%d,L:%d", &t, &h, &l) == 3) {
+      temp = t;
+      humi = h;
+      light = l;
+    }
   }
 
-  // 2) From STM32 -> ESP32 -> PC
-  if (Serial1.available()) {
-    int c = Serial1.read();
-    Serial.write(c);   // show on Serial Monitor
+  unsigned long currentMillis = millis();
+  if (currentMillis - lastSendTime >= sendInterval) {
+    lastSendTime = currentMillis;
+    sendDataToNetpie();
   }
 }
