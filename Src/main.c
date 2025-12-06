@@ -121,7 +121,7 @@ void DHT11_Start(void)
 
 uint8_t DHT11_WaitForPin(GPIO_PinState state, uint32_t timeout_us)
 {
-    __HAL_TIM_SET_COUNTER(&htim2, 0);  // รีเซ็ต timer �?่อนเสมอ
+    __HAL_TIM_SET_COUNTER(&htim2, 0);  // Always reset the timer
     while (HAL_GPIO_ReadPin(GPIOB, GPIO_PIN_0) != state)
     {
         if (__HAL_TIM_GET_COUNTER(&htim2) > timeout_us)
@@ -399,8 +399,11 @@ int main(void)
 		int badAir = isBadAir(temp, humi, adcval);
 		int tooDark = isTooDark(adcval);
 
+		// Integer Round
+		int feelsLike = (int)(heatIndex + 0.5f);
+
 		// Communication with NodeMCU
-		sprintf(buf, "T:%d,H:%d,L:%d,D:%d,B:%d\r\n",temp, humi, adcval, tooDark, badAir);
+		sprintf(buf, "T:%d,H:%d,L:%d,D:%d,B:%d,F:%d\r\n", temp, humi, adcval, tooDark, badAir, feelsLike);
 		HAL_UART_Transmit(&huart1, (uint8_t*)buf, strlen(buf), 100);
 	}
   /* USER CODE END 3 */
