@@ -47,6 +47,7 @@
 ADC_HandleTypeDef hadc1;
 
 TIM_HandleTypeDef htim2;
+TIM_HandleTypeDef htim5;
 
 UART_HandleTypeDef huart1;
 UART_HandleTypeDef huart2;
@@ -61,6 +62,7 @@ static void MX_GPIO_Init(void);
 static void MX_USART2_UART_Init(void);
 static void MX_ADC1_Init(void);
 static void MX_TIM2_Init(void);
+static void MX_TIM5_Init(void);
 static void MX_USART1_UART_Init(void);
 /* USER CODE BEGIN PFP */
 
@@ -119,7 +121,7 @@ void DHT11_Start(void)
 
 uint8_t DHT11_WaitForPin(GPIO_PinState state, uint32_t timeout_us)
 {
-    __HAL_TIM_SET_COUNTER(&htim2, 0);  // รีเซ็ต timer �?่อนเสมอ
+    __HAL_TIM_SET_COUNTER(&htim2, 0);  // Always reset the timer
     while (HAL_GPIO_ReadPin(GPIOB, GPIO_PIN_0) != state)
     {
         if (__HAL_TIM_GET_COUNTER(&htim2) > timeout_us)
@@ -206,12 +208,7 @@ void SendToNodeMCU(const char* msg) {
     HAL_UART_Transmit(&huart1, (uint8_t*)msg, strlen(msg), 100);
 }
 
-// Unused Threshold
-#define TEMP_LIMIT   31.0f
-#define HUM_LIMIT    80.0f
-#define LIGHT_LIMIT  2000
-
-// Used Threshold
+// Heat Index Thresholds (NOAA Standard)
 #define HEAT_INDEX_CAUTION     27.0f
 #define HEAT_INDEX_DANGER      32.0f
 #define HEAT_INDEX_EXTREME     41.0f
@@ -246,13 +243,6 @@ float calculateHeatIndex(float tempC, float humidity) {
     return HI;
 }
 
-//int isBadAir(float t, float h, int light) {
-//    if (t >= TEMP_LIMIT) return 1;
-//    if (h >= HUM_LIMIT) return 1;
-//    if (light <= LIGHT_LIMIT) return 1;
-//    return 0;
-//}
-
 int isBadAir(float temp, float humi, int light) {
     float heatIndex = calculateHeatIndex(temp, humi);
     if (heatIndex >= HEAT_INDEX_DANGER) {
@@ -274,6 +264,41 @@ void SetGreen() {
 void SetRed() {
 	HAL_GPIO_WritePin(GPIOA, GPIO_PIN_0, GPIO_PIN_SET);
 	HAL_GPIO_WritePin(GPIOA, GPIO_PIN_1, GPIO_PIN_RESET);
+}
+
+// PWM Functions
+void PWM_Start(void) {
+    HAL_TIM_PWM_Start(&htim5, TIM_CHANNEL_1);  // Red LED
+    HAL_TIM_PWM_Start(&htim5, TIM_CHANNEL_2);  // Green LED
+}
+
+void PWM_SetRed(uint16_t brightness) {
+    __HAL_TIM_SET_COMPARE(&htim5, TIM_CHANNEL_1, brightness);
+}
+
+void PWM_SetGreen(uint16_t brightness) {
+    __HAL_TIM_SET_COMPARE(&htim5, TIM_CHANNEL_2, brightness);
+}
+
+void PWM_SetColor(uint16_t red, uint16_t green) {
+    PWM_SetRed(red);
+    PWM_SetGreen(green);
+}
+
+// Set LED by Heat Index (Range-based)
+void SetLEDByHeatIndex(float heatIndex) {
+    if (heatIndex < HEAT_INDEX_CAUTION) {
+        PWM_SetColor(0, 999); // < 27°C: Green
+    }
+    else if (heatIndex < HEAT_INDEX_DANGER) {
+        PWM_SetColor(35, 999); // 27-32°C: Yellow
+    }
+    else if (heatIndex < HEAT_INDEX_EXTREME) {
+        PWM_SetColor(300, 999); // 32-41°C: Orange
+    }
+    else {
+        PWM_SetColor(999, 0); // >= 41°C: Red
+    }
 }
 
 /* USER CODE END 0 */
@@ -310,9 +335,12 @@ int main(void)
   MX_USART2_UART_Init();
   MX_ADC1_Init();
   MX_TIM2_Init();
+  MX_TIM5_Init();
   MX_USART1_UART_Init();
   /* USER CODE BEGIN 2 */
 	HAL_TIM_Base_Start(&htim2);
+	HAL_TIM_Base_Start(&htim5);
+	PWM_Start();
 
 
 	/* --- Debug: print clocks and timer prescaler --- */
@@ -366,17 +394,16 @@ int main(void)
 
 		HAL_Delay(1000);
 
+		float heatIndex = calculateHeatIndex((float)temp, (float)humi);
+		SetLEDByHeatIndex(heatIndex);
 		int badAir = isBadAir(temp, humi, adcval);
 		int tooDark = isTooDark(adcval);
 
-		if (badAir || tooDark) {
-			SetRed();
-		} else {
-			SetGreen();
-		}
+		// Integer Round
+		int feelsLike = (int)(heatIndex + 0.5f);
 
 		// Communication with NodeMCU
-		sprintf(buf, "T:%d,H:%d,L:%d,D:%d,B:%d\r\n",temp, humi, adcval, tooDark, badAir);
+		sprintf(buf, "T:%d,H:%d,L:%d,D:%d,B:%d,F:%d\r\n", temp, humi, adcval, tooDark, badAir, feelsLike);
 		HAL_UART_Transmit(&huart1, (uint8_t*)buf, strlen(buf), 100);
 	}
   /* USER CODE END 3 */
@@ -521,6 +548,59 @@ static void MX_TIM2_Init(void)
 }
 
 /**
+  * @brief TIM5 Initialization Function
+  * @param None
+  * @retval None
+  */
+static void MX_TIM5_Init(void)
+{
+
+  /* USER CODE BEGIN TIM5_Init 0 */
+
+  /* USER CODE END TIM5_Init 0 */
+
+  TIM_MasterConfigTypeDef sMasterConfig = {0};
+  TIM_OC_InitTypeDef sConfigOC = {0};
+
+  /* USER CODE BEGIN TIM5_Init 1 */
+
+  /* USER CODE END TIM5_Init 1 */
+  htim5.Instance = TIM5;
+  htim5.Init.Prescaler = 79;
+  htim5.Init.CounterMode = TIM_COUNTERMODE_UP;
+  htim5.Init.Period = 999;
+  htim5.Init.ClockDivision = TIM_CLOCKDIVISION_DIV1;
+  htim5.Init.AutoReloadPreload = TIM_AUTORELOAD_PRELOAD_DISABLE;
+  if (HAL_TIM_PWM_Init(&htim5) != HAL_OK)
+  {
+    Error_Handler();
+  }
+  sMasterConfig.MasterOutputTrigger = TIM_TRGO_RESET;
+  sMasterConfig.MasterSlaveMode = TIM_MASTERSLAVEMODE_DISABLE;
+  if (HAL_TIMEx_MasterConfigSynchronization(&htim5, &sMasterConfig) != HAL_OK)
+  {
+    Error_Handler();
+  }
+  sConfigOC.OCMode = TIM_OCMODE_PWM1;
+  sConfigOC.Pulse = 0;
+  sConfigOC.OCPolarity = TIM_OCPOLARITY_HIGH;
+  sConfigOC.OCFastMode = TIM_OCFAST_DISABLE;
+  if (HAL_TIM_PWM_ConfigChannel(&htim5, &sConfigOC, TIM_CHANNEL_1) != HAL_OK)
+  {
+    Error_Handler();
+  }
+  if (HAL_TIM_PWM_ConfigChannel(&htim5, &sConfigOC, TIM_CHANNEL_2) != HAL_OK)
+  {
+    Error_Handler();
+  }
+  /* USER CODE BEGIN TIM5_Init 2 */
+
+  /* USER CODE END TIM5_Init 2 */
+  HAL_TIM_MspPostInit(&htim5);
+
+}
+
+/**
   * @brief USART1 Initialization Function
   * @param None
   * @retval None
@@ -602,7 +682,7 @@ static void MX_GPIO_Init(void)
   __HAL_RCC_GPIOB_CLK_ENABLE();
 
   /*Configure GPIO pin Output Level */
-  HAL_GPIO_WritePin(GPIOA, GPIO_PIN_0|GPIO_PIN_1|LD2_Pin, GPIO_PIN_RESET);
+  HAL_GPIO_WritePin(LD2_GPIO_Port, LD2_Pin, GPIO_PIN_RESET);
 
   /*Configure GPIO pin : B1_Pin */
   GPIO_InitStruct.Pin = B1_Pin;
@@ -610,12 +690,12 @@ static void MX_GPIO_Init(void)
   GPIO_InitStruct.Pull = GPIO_NOPULL;
   HAL_GPIO_Init(B1_GPIO_Port, &GPIO_InitStruct);
 
-  /*Configure GPIO pins : PA0 PA1 LD2_Pin */
-  GPIO_InitStruct.Pin = GPIO_PIN_0|GPIO_PIN_1|LD2_Pin;
+  /*Configure GPIO pin : LD2_Pin */
+  GPIO_InitStruct.Pin = LD2_Pin;
   GPIO_InitStruct.Mode = GPIO_MODE_OUTPUT_PP;
   GPIO_InitStruct.Pull = GPIO_NOPULL;
   GPIO_InitStruct.Speed = GPIO_SPEED_FREQ_LOW;
-  HAL_GPIO_Init(GPIOA, &GPIO_InitStruct);
+  HAL_GPIO_Init(LD2_GPIO_Port, &GPIO_InitStruct);
 
   /*Configure GPIO pin : PB0 */
   GPIO_InitStruct.Pin = GPIO_PIN_0;
