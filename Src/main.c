@@ -206,19 +206,63 @@ void SendToNodeMCU(const char* msg) {
     HAL_UART_Transmit(&huart1, (uint8_t*)msg, strlen(msg), 100);
 }
 
+// Unused Threshold
 #define TEMP_LIMIT   31.0f
 #define HUM_LIMIT    80.0f
 #define LIGHT_LIMIT  2000
 
-int isBadAir(float t, float h, int light) {
-    if (t >= TEMP_LIMIT) return 1;
-    if (h >= HUM_LIMIT) return 1;
-    if (light <= LIGHT_LIMIT) return 1;
+// Used Threshold
+#define HEAT_INDEX_CAUTION     27.0f
+#define HEAT_INDEX_DANGER      32.0f
+#define HEAT_INDEX_EXTREME     41.0f
+#define LIGHT_DARK_THRESHOLD   2000
+
+float calculateHeatIndex(float tempC, float humidity) {
+    if (tempC < 27.0f) {
+        return tempC;
+    }
+
+    // T = Temperature (Celsius)
+    // RH = Relative Humidity (%)
+    float T = tempC;
+    float RH = humidity;
+
+    // Rothfusz Regression
+    float c1 = -8.78469475556;
+    float c2 = 1.61139411;
+    float c3 = 2.33854883889;
+    float c4 = -0.14611605;
+    float c5 = -0.012308094;
+    float c6 = -0.0164248277778;
+    float c7 = 0.002211732;
+    float c8 = 0.00072546;
+    float c9 = -0.000003582;
+
+    float HI = c1 + (c2 * T) + (c3 * RH) + (c4 * T * RH) +
+               (c5 * T * T) + (c6 * RH * RH) +
+               (c7 * T * T * RH) + (c8 * T * RH * RH) +
+               (c9 * T * T * RH * RH);
+
+    return HI;
+}
+
+//int isBadAir(float t, float h, int light) {
+//    if (t >= TEMP_LIMIT) return 1;
+//    if (h >= HUM_LIMIT) return 1;
+//    if (light <= LIGHT_LIMIT) return 1;
+//    return 0;
+//}
+
+int isBadAir(float temp, float humi, int light) {
+    float heatIndex = calculateHeatIndex(temp, humi);
+    if (heatIndex >= HEAT_INDEX_DANGER) {
+        return 1;  // Bad Air
+    }
     return 0;
 }
 
 int isTooDark(int light) {
-    if (light <= LIGHT_LIMIT) return 1;
+    if (light <= LIGHT_DARK_THRESHOLD) return 1;
     return 0;
 }
 
@@ -325,14 +369,13 @@ int main(void)
 		int badAir = isBadAir(temp, humi, adcval);
 		int tooDark = isTooDark(adcval);
 
-		if (badAir) {
+		if (badAir || tooDark) {
 			SetRed();
 		} else {
 			SetGreen();
 		}
 
-
-		// TODO Send Temp, Humid, Light to NodeMCU
+		// Communication with NodeMCU
 		sprintf(buf, "T:%d,H:%d,L:%d,D:%d,B:%d\r\n",temp, humi, adcval, tooDark, badAir);
 		HAL_UART_Transmit(&huart1, (uint8_t*)buf, strlen(buf), 100);
 	}
