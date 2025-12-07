@@ -376,7 +376,7 @@ int main(void)
 		HAL_ADC_Start(&hadc1);
 		if (HAL_ADC_PollForConversion(&hadc1, 1000) == HAL_OK) {
 			adcval = HAL_ADC_GetValue(&hadc1);
-			sprintf(buf,  "Ligth %d\r\n" , adcval);
+			sprintf(buf,  "Light %d\r\n" , adcval);
 			HAL_UART_Transmit(&huart2, buf, strlen(buf), 1000);
 		}
 
@@ -400,7 +400,7 @@ int main(void)
 		int tooDark = isTooDark(adcval);
 
 		// Integer Round
-		int feelsLike = (int)(heatIndex + 0.5f);
+		int feelsLike = (int)(heatIndex);
 
 		// Communication with NodeMCU
 		sprintf(buf, "T:%d,H:%d,L:%d,D:%d,B:%d,F:%d\r\n", temp, humi, adcval, tooDark, badAir, feelsLike);
